@@ -1,4 +1,4 @@
-from scrobbing.models import LastFMAuthorization
+from scrobble.models import LastFMAuthorization
 
 def lastfm_authentication_callback(request):
     """

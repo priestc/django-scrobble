@@ -40,7 +40,7 @@ class LastFMQuery(object):
         return "http://ws.audioscrobbler.com/2.0/?" + q
         
 class LastFMAuthorization(models.Model):
-    user = models.ForeignKey(User, related_name='lastfm_token', unique=True)
+    user = models.ForeignKey('auth.User', related_name='lastfm_token', unique=True)
     session_key = models.CharField(max_length=255)
         
     @classmethod

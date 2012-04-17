@@ -2,6 +2,9 @@
 * `pip install django-scrobble`
 * add to `INSTALLED_APPS`
 * run `python manage.py syncdb`
+* add the scrobble urls somewhere to your projects urls:
+    url(r'scrobble/', include('scrobble.urls')),
+* enter your callback url into the last.fm callback field. To get your callback, run the management command `python manage.py lastfm_callback`
 
 ## Usage ##
 Go to last.fm to sign up for an API account.
