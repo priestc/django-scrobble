@@ -10,7 +10,7 @@ METADATA = dict(
     #long_description=open('README.md').read(),
     url='http://github.com/priestc/django-scrobble',
     keywords='lastfm scrobble django',
-    install_requires=['django'],
+    install_requires=['django', 'requests'],
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',

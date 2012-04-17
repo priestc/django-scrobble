@@ -6,6 +6,5 @@ def lastfm_authentication_callback(request):
     We then take the token and store it onto the model.
     """
     token = request.GET['token']
-    session_key = response.content
-    LastFMAuthorization.set_session(request.user, session_key)
+    LastFMSession.create_session(request.user, token)
     return HttpResponse('OK')
