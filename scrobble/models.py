@@ -1,9 +1,13 @@
 import hashlib
 import urllib
+from xml.dom.minidom import parseString
+
+import requests
+
 from django.conf import settings
 from django.db import models
 
-class LastFMErorr(Exception):
+class LastFMError(Exception):
     pass
 
 class LastFMQuery(object):
@@ -47,18 +51,38 @@ class LastFMQuery(object):
         try:
             url = self._make_url(method)
             response = requests.get(url)
-        except:
-            raise LastFMError('oops, error')
-    
-    def _get_code_from_response(self, response):
+        except Exception as exc:
+            raise LastFMError('oops, error: %s' % exc)
+        
+        xml = parseString(response.content)
+        status = xml.getElementsByTagName('lfm')[0].getAttribute('status')
+        
+        if status == 'failed':
+            code, msg = self._get_error_code_from_response_xml(xml)
+            raise LastFMError("%s - %s" % (code, msg))
+        elif status == 'ok':
+            return True
+        
+    def _get_error_code_from_response_xml(self, xml):
         """
-        Given a response from lastfm api, parse out the error code, (if any)
+        Given a requests response from lastfm api, parse out the error code,
+        (if any)
         """
+        error = xml.getElementsByTagName('error')
+        if len(error):
+            code = error[0].getAttribute('code')
+            msg = error[0].firstChild.data
+            return (code, msg)
+        raise LastFMError("Can't find error in response")
+        
 
 class LastFMSession(models.Model):
-    user = models.ForeignKey('auth.User', related_name='lastfm_token', unique=True)
+    user = models.ForeignKey('auth.User', related_name='lastfm_token', primary_key=True)
     session_key = models.CharField(max_length=255)
-        
+    
+    def __unicode__(self):
+        return "%s - %s" % (self.user.username, self.session_key)
+    
     @classmethod
     def create_session(user, token):
         """
