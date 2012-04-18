@@ -1,4 +1,5 @@
 import datetime
+import logging
 import hashlib
 import urllib
 import time
@@ -9,7 +10,9 @@ import requests
 from django.conf import settings
 from django.db import models
 
-from utils import queryset_iterator
+from utils import chunks
+
+log = logging.getLogger(__name__)
 
 class LastFMError(Exception):
     pass
@@ -58,21 +61,23 @@ class LastFMQuery(object):
         """
         self.params['method'] = method
         
-        if method == 'track.updateNowPlaying':
+        if method in ('track.updateNowPlaying', 'track.scrobble'):
             data = self._get_params()
             make_call = lambda: requests.post(self.url, data)
 
         elif method == 'auth.getSession':
-            q = self.as_q()
-            make_call = lambda: requests.get(self.url + '?' + q)
+            data = self.as_q()
+            make_call = lambda: requests.get(self.url + '?' + data)
         else:
-            raise NotImplemented
+            raise NotImplementedError
 
         try:
             response = make_call()
         except Exception as exc:
             raise LastFMError('oops, error: %s' % exc)
 
+        log.debug("Last.fm call params were: %s" % data)
+        log.debug("Last.fm response: %s" % response.content)
         xml = parseString(response.content)
         status = xml.getElementsByTagName('lfm')[0].getAttribute('status')
 
@@ -145,6 +150,9 @@ class LastFMSession(models.Model):
         except LastFMError as exc:
             pass #now playing errors we can ignore
     
+    def get_failed_scrobbles(self):
+        return Scrobble.objects.filter(user=self.user, sent=False).order_by('timestamp')
+    
     def new_scrobble(self, **kwargs):
         """
         keyword arguments are the exact same as Scrobble.__init__
@@ -155,26 +163,30 @@ class LastFMSession(models.Model):
         kwargs['sent'] = False
         new_scrobble = Scrobble(**kwargs)
         
-        scrobbles = Scrobble.objects.filter(user=user, sent=False)
+        scrobbles = self.get_failed_scrobbles()
         
         try:
-            for ss in queryset_iterator(scrobbles, chunksize=50, order_by='timestamp'):
+            for ss in chunks(scrobbles, chunksize=50):
+                # Send previously failed scrobbles to lastfm in chunks of 50
                 ss = ScrobbleSet(scrobbles)
-                ss.try_to_send()
-        except:
+                ss.try_to_send(session_key=self.session_key)
+                
+        except LastFMError:
             # there were old scrobbles that needed to be sent first, and some of them
             # failed. Queue this one up, and don't bother sending any more.
             # (lastfm is most likely down)
             new_scrobble.send = False
             new_scrobble.save()
+            return False
         else:    
             # Either there were no old scrobbles to send first, or they
             # all were sent sucessfully! send the new scrobble now.
             new_scrobble.send()
+            return True
 
 class Scrobble(models.Model):
     """
-    When a scrobble is sent an the service is down, the failed scrobble is
+    When a scrobble is sent and the service is down, the failed scrobble is
     sent to this table where it is retried at a later time. The only scrobbles
     that will get written to the database are scrobbles that have failed.
     """
@@ -206,6 +218,10 @@ class ScrobbleSet(object):
     def __init__(self, scrobbles):
         self.scrobbles = scrobbles
 
+    def __len__(self):
+        return len(self.scrobbles)
+
+    @property
     def post_data(self):
         """
         Encode these scrobbles into a properly formatted dictionary as
@@ -231,14 +247,14 @@ class ScrobbleSet(object):
         """
         self.scrobbles.update(sent=True)
     
-    def try_to_send(self):
-        try:
-            response = LastFMQuery(**self.post_data).execute('track.scrobble')
-        except:
-            # last.fm is down, retry on next attempt
-            pass
-        else:
-            self.set_sucess()
+    def try_to_send(self, session_key):
+        data = self.post_data
+        data['sk'] = session_key
+        response = LastFMQuery(**data).execute('track.scrobble')
+        log.debug("response: %s" % response.content)
+        msg = 'Successfully sent ScrobbleSet (%s items) to lastfm' % len(self)
+        log.debug(msg)
+        
 
 
 

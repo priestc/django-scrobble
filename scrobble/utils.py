@@ -1,19 +1,6 @@
-def queryset_iterator(queryset, chunksize=50, order_by='pk'):
+def chunks(data, chunksize=50):
     """
-    Iterate over a Django Queryset ordered by the primary key
-
-    This method loads a maximum of chunksize (default: 1000) rows in it's
-    memory at the same time while django normally would load all rows in it's
-    memory. Using the iterator() method only causes it to not preload all the
-    classes.
-
-    Note that the implementation of the iterator does not support ordered query sets.
+    Yield successive chunksize-sized chunks from data.
     """
-    pk = 0
-    last_pk = queryset.order_by('-%s' % order_by)[0].pk
-    queryset = queryset.order_by(order_by)
-    while pk < last_pk:
-        for row in queryset.filter(pk__gt=pk)[:chunksize]:
-            pk = row.pk
-            yield row
-        gc.collect()
+    for i in xrange(0, len(data), chunksize):
+        yield data[i:i+chunksize]
