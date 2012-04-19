@@ -1,4 +1,5 @@
 from scrobble.models import LastFMSession
+from django.http import HttpResponse
 
 def lastfm_authentication_callback(request):
     """

@@ -66,13 +66,14 @@ class LastFMQuery(object):
             make_call = lambda: requests.post(self.url, data)
 
         elif method == 'auth.getSession':
-            data = self.as_q()
+            data = self._as_q()
             make_call = lambda: requests.get(self.url + '?' + data)
         else:
             raise NotImplementedError
 
         try:
             response = make_call()
+            log.debug("response: %s" % response.content)
         except Exception as exc:
             raise LastFMError('oops, error: %s' % exc)
 
@@ -103,7 +104,8 @@ class LastFMQuery(object):
 class LastFMSession(models.Model):
     user = models.ForeignKey('auth.User', related_name='lastfm_token', primary_key=True)
     session_key = models.CharField(max_length=255)
-
+    lastfm_username = models.CharField(max_length=48)
+    
     def __unicode__(self):
         return "%s - %s" % (self.user.username, self.session_key)
 
@@ -134,9 +136,10 @@ class LastFMSession(models.Model):
         try:
             obj = cls.objects.get(user=user)
         except cls.DoesNotExist:
-            obj = cls.objects.create(user)
+            obj = cls.objects.create(user=user)
 
         obj.session_key = session_key
+        obj.lastfm_username = username
         obj.save()
 
     def now_playing(self, artist, track, album=None, mbid=None, duration=None):
@@ -151,7 +154,7 @@ class LastFMSession(models.Model):
             pass #now playing errors we can ignore
     
     def get_failed_scrobbles(self):
-        return Scrobble.objects.filter(user=self.user, sent=False).order_by('timestamp')
+        return self.scrobbles.filter(sent=False).order_by('timestamp')
     
     def new_scrobble(self, **kwargs):
         """
@@ -159,7 +162,7 @@ class LastFMSession(models.Model):
         It makes the new scrobble object, then tries to send all scrobbles
         that need sending.
         """
-        kwargs['user'] = self.user
+        kwargs['session'] = self
         kwargs['sent'] = False
         new_scrobble = Scrobble(**kwargs)
         
@@ -181,8 +184,10 @@ class LastFMSession(models.Model):
         else:    
             # Either there were no old scrobbles to send first, or they
             # all were sent sucessfully! send the new scrobble now.
+            new_scrobble.timestamp = int(time.time())
             new_scrobble.send()
             return True
+
 
 class Scrobble(models.Model):
     """
@@ -202,11 +207,19 @@ class Scrobble(models.Model):
     trackNumber = models.IntegerField(null=True)
     mbid = models.CharField(max_length=10, null=True)
     
-    user = models.ForeignKey('auth.User', related_name='lastfm_caches', db_index=True)
     sent = models.BooleanField(default=False)
+    session = models.ForeignKey('LastFMSession', related_name='scrobbles', db_index=True)
     
     def __unicode__(self):
         return "%s - %s - %s" % (self.user.username, self.artist, self.track)
+
+    def send(self):
+        """
+        Send just this scrobble to the lastfm api.
+        """
+        ss = ScrobbleSet([self])
+        session_key = self.session
+        ss.try_to_send(session_key)
 
 class ScrobbleSet(object):
     """
@@ -217,6 +230,7 @@ class ScrobbleSet(object):
     
     def __init__(self, scrobbles):
         self.scrobbles = scrobbles
+        self.session_key = scrobbles[0].session.session_key
 
     def __len__(self):
         return len(self.scrobbles)
@@ -249,9 +263,8 @@ class ScrobbleSet(object):
     
     def try_to_send(self, session_key):
         data = self.post_data
-        data['sk'] = session_key
+        data['sk'] = self.session_key
         response = LastFMQuery(**data).execute('track.scrobble')
-        log.debug("response: %s" % response.content)
         msg = 'Successfully sent ScrobbleSet (%s items) to lastfm' % len(self)
         log.debug(msg)
         

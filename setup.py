@@ -3,7 +3,7 @@ from setuptools import setup,find_packages
 
 METADATA = dict(
     name='django-scrobble',
-    version='0.1.0',
+    version='1.0.0',
     author='Chris Priest',
     author_email='cp368202@ohiou.edu',
     description='Integration with last.fm scrobble api',
